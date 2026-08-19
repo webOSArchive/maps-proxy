@@ -323,3 +323,147 @@ function radarParseLatLon() {
     if ($lat === false || $lon === false) return null;
     return [$lat, $lon];
 }
+
+// -------------------------------------------------------------------------
+// Generalized (arbitrary width/height/zoom) versions of the grid math above,
+// used by accuweather-radar.php, which — unlike radar-map.php/radar-gif.php
+// — needs an arbitrary imagewidth/imageheight and a zoom picked from a
+// requested "miles across" value rather than the fixed 512x512 @ zoom 6.
+// Added alongside the fixed-size functions above rather than replacing them,
+// so radar-map.php/radar-gif.php are untouched.
+// -------------------------------------------------------------------------
+
+// Picks the slippy-map zoom level whose tile resolution best matches
+// $geoWidthMiles (the AccuWeather app's "miles across the image" value)
+// rendered into $outputWidthPx pixels, via the standard Web Mercator
+// meters-per-pixel-at-zoom formula. Clamped to what the upstream tile
+// sources have data for.
+function radarZoomForGeowidth($geoWidthMiles, $outputWidthPx, $lat, $minZoom, $maxZoom) {
+    $metersPerMile = 1609.344;
+    $desiredMetersPerPixel = ($geoWidthMiles * $metersPerMile) / max(1, $outputWidthPx);
+    $metersPerPixelAtZoom0 = 156543.03392 * cos(deg2rad($lat));
+    $z = (int) round(log($metersPerPixelAtZoom0 / $desiredMetersPerPixel, 2));
+    return max($minZoom, min($maxZoom, $z));
+}
+
+// Same idea as radarCenterGrid() above, generalized to an arbitrary (not
+// necessarily square) output size. gridCols/gridRows are sized to the
+// smallest tile grid that can cover $outputW x $outputH pixels plus one
+// full tile of margin on every side, so the exact-pixel crop below always
+// has room to shift regardless of where the center point falls within its
+// own tile (same reasoning as the fixed 3x3/512 case, generalized).
+function radarCenterGridGeneric($lat, $lon, $zoom, $tileSize, $outputW, $outputH) {
+    $xf = lonToTileX($lon, $zoom);
+    $yf = latToTileY($lat, $zoom);
+
+    $gridCols = (int) ceil(($outputW + $tileSize) / $tileSize);
+    $gridRows = (int) ceil(($outputH + $tileSize) / $tileSize);
+
+    $x0 = (int) floor($xf) - intdiv($gridCols, 2);
+    $y0 = (int) floor($yf) - intdiv($gridRows, 2);
+
+    $pointPxX = ($xf - $x0) * $tileSize;
+    $pointPxY = ($yf - $y0) * $tileSize;
+
+    $canvasW = $gridCols * $tileSize;
+    $canvasH = $gridRows * $tileSize;
+
+    $cropLeft = max(0, min($canvasW - $outputW, (int) round($pointPxX - $outputW / 2)));
+    $cropTop  = max(0, min($canvasH - $outputH, (int) round($pointPxY - $outputH / 2)));
+
+    return [
+        'gridCols' => $gridCols, 'gridRows' => $gridRows,
+        'x0' => $x0, 'y0' => $y0,
+        'cropLeft' => $cropLeft, 'cropTop' => $cropTop,
+    ];
+}
+
+function radarGridOffsetsGeneric($x0, $y0, $gridCols, $gridRows, $tileSize) {
+    $offsets = [];
+    for ($row = 0; $row < $gridRows; $row++) {
+        for ($col = 0; $col < $gridCols; $col++) {
+            $offsets[] = [
+                'x' => $x0 + $col, 'y' => $y0 + $row,
+                'left' => $col * $tileSize, 'top' => $row * $tileSize,
+            ];
+        }
+    }
+    return $offsets;
+}
+
+// Generic version of radarBuildFrame() above: arbitrary grid/canvas/output
+// size instead of the fixed 3x3 tiles / 512x512 square.
+function radarBuildFrameGeneric($offsets, $gridCols, $gridRows, $tileSize, $basemapTiles, $overlayTiles, $cropLeft, $cropTop, $outputW, $outputH) {
+    $canvas = imagecreatetruecolor($gridCols * $tileSize, $gridRows * $tileSize);
+    imagealphablending($canvas, false);
+    imagesavealpha($canvas, true);
+    $transparent = imagecolorallocatealpha($canvas, 0, 0, 0, 127);
+    imagefill($canvas, 0, 0, $transparent);
+
+    foreach ($offsets as $i => $o) {
+        $overlayBytes = $overlayTiles[$i];
+        $tileImg = $overlayBytes !== false
+            ? radarCompositeTile($basemapTiles[$i], $overlayBytes)
+            : @imagecreatefromstring($basemapTiles[$i]);
+        if (!$tileImg) continue;
+
+        imagealphablending($canvas, false);
+        imagecopy($canvas, $tileImg, $o['left'], $o['top'], 0, 0, $tileSize, $tileSize);
+        imagedestroy($tileImg);
+    }
+
+    $cropped = imagecrop($canvas, [
+        'x' => $cropLeft, 'y' => $cropTop,
+        'width' => $outputW, 'height' => $outputH,
+    ]);
+    imagedestroy($canvas);
+    if (!$cropped) return false;
+
+    ob_start();
+    imagepng($cropped);
+    $pngBytes = ob_get_clean();
+    imagedestroy($cropped);
+    return $pngBytes;
+}
+
+// Fetches one NEXRAD mosaic frame's grid tiles from the Iowa Environmental
+// Mesonet's public tile cache (mesonet.agron.iastate.edu) — the "nexrad-n0q"
+// layer is IEM's national composite-reflectivity mosaic (built from NOAA/NWS
+// NEXRAD data), served as standard z/x/y slippy tiles — confirmed live:
+// 256x256 RGBA PNG, unlike radar.weather.gov's fixed-extent pre-rendered
+// station loop GIFs, this can be cropped/zoomed/panned exactly like
+// RainViewer's tiles above, via the exact same grid-compositing path.
+// $ageSuffix is '' for the current frame or '-mNNm' (NN = 05..55, IEM's
+// 5-minute-increment aged variants) for a past frame — see
+// radarNexradAgeSuffixes() below.
+function radarFetchNexradTiles($config, $ageSuffix, $zoom, $offsets) {
+    $tmpl = $config['nexradTileUrl'];
+    $safeSuffix = preg_replace('/[^a-zA-Z0-9_\-]/', '', $ageSuffix);
+
+    $requests = [];
+    foreach ($offsets as $o) {
+        $requests[] = [
+            'url' => str_replace(['{suffix}', '{z}', '{x}', '{y}'], [$safeSuffix, $zoom, $o['x'], $o['y']], $tmpl),
+            'cacheFile' => $config['radarCacheDir'] . "/nexrad/$safeSuffix/$zoom/{$o['x']}/{$o['y']}.png",
+            'ttl' => $config['nexradTileCacheTtl'],
+        ];
+    }
+
+    return radarFetchManyCached($requests, $config['nexradUserAgent']);
+}
+
+// Maps an animated request's (frameCount, intervalMinutes) onto IEM's
+// available aged frames for a NEXRAD loop. IEM only offers 5-minute
+// increments from "current" back to -55m, so this snaps to the nearest
+// available frame rather than the exact spacing requested — close enough
+// for a "recent motion" loop. Returns oldest-first (so a GIF built from it
+// plays forward in time, matching radar-gif.php's RainViewer ordering).
+function radarNexradAgeSuffixes($frameCount, $intervalMinutes) {
+    $suffixes = [''];
+    for ($i = 1; $i < $frameCount; $i++) {
+        $ageMinutes = min(55, (int) round($i * $intervalMinutes / 5) * 5);
+        if ($ageMinutes <= 0) continue;
+        $suffixes[] = sprintf('-m%02dm', $ageMinutes);
+    }
+    return array_reverse($suffixes);
+}

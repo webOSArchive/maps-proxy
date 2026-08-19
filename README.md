@@ -122,6 +122,19 @@ server {
         include fastcgi_params;
     }
 
+    # AccuWeather webOS app's old NMIGS radar endpoints, revived here (see
+    # "AccuWeather radar" section below)
+    location = /nmigs/acx.aspx {
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root/accuweather-token.php;
+        include fastcgi_params;
+    }
+    location = /nmigs/wapv4.aspx {
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root/accuweather-radar.php;
+        include fastcgi_params;
+    }
+
 }
 ```
 
@@ -177,6 +190,13 @@ curl -s "$BASE/REST/v1/Routes/Driving?wp.0=Seattle,WA&wp.1=Portland,OR&distanceU
 # Radar overlay (should return a PNG, and a GIF if Imagick is installed)
 curl -s -o /dev/null -w "radar png %{http_code} %{content_type}\n" "$BASE/radar/map.png?lat=40.7128&lon=-74.0060"
 curl -s -o /dev/null -w "radar gif %{http_code} %{content_type}\n" "$BASE/radar/map.gif?lat=40.7128&lon=-74.0060"
+
+# AccuWeather radar token feed (should return the dummy <acx> XML)
+curl -s "$BASE/nmigs/acx.aspx?cb=123" | head -3
+
+# AccuWeather radar image, US (NEXRAD) and international (RainViewer)
+curl -s -o /dev/null -w "us    %{http_code} %{content_type}\n" "$BASE/nmigs/wapv4.aspx?imagewidth=480&imageheight=480&mx=-74.0060&my=40.7128&imagesource=US_SIR&geowidth=400"
+curl -s -o /dev/null -w "intl  %{http_code} %{content_type}\n" "$BASE/nmigs/wapv4.aspx?imagewidth=480&imageheight=480&mx=-0.1276&my=51.5072&imagesource=WORLD_IR&geowidth=400"
 ```
 
 ## Radar overlay
@@ -203,3 +223,44 @@ by default, separate from `tiles_cache/` above), TTLs configured in
 `config.php`. **RainViewer's terms are personal/non-commercial use with
 attribution required** — worth a re-check if this ends up serving more
 than a small hobbyist/community audience.
+
+## AccuWeather radar
+
+`accuweather-token.php` / `accuweather-radar.php` revive the radar view in
+the legacy AccuWeather webOS app (`com.accuweather.palm.purchased`), whose
+own NMIGS radar backend (`wapv4.accu-weather.com`) has been dead since
+AccuWeather retired the old API. The app's client code
+(`app/services/radar-image.js`) is patched to point its two hardcoded NMIGS
+URLs here instead — see that project's `radar.md` for the full request
+shape.
+
+- `GET /nmigs/acx.aspx` — dummy replacement for AccuWeather's original
+  encrypted "crypto feed" token. The client decrypts and forwards whatever
+  this returns, but `accuweather-radar.php` ignores it entirely (we own both
+  endpoints), so this is just fixed placeholder XML.
+- `GET /nmigs/wapv4.aspx?imagewidth=&imageheight=&mx=&my=&imagesource=&geowidth=[&framecount=&interval=&imageformat=gif]` —
+  the actual radar image, composited the same way as `/radar/map.png|gif`
+  above but generalized to the app's arbitrary width/height and
+  "geowidth" (miles across, one of `50/100/200/400/800/1600/3200/6400`) —
+  zoom is picked per-request via `radarZoomForGeowidth()` in
+  `radar-common.php`. Static (PNG) unless `imageformat=gif` and
+  `framecount` are both present, matching the app's own "Play" animate
+  action; same `501`-if-no-Imagick fallback as `/radar/map.gif`.
+- `imagesource=US_SIR` (the app's own signal for a US location) uses the
+  **NEXRAD mosaic** below instead of RainViewer; everything else — including
+  `HI_RE`/`AL_RE` (Hawaii/Alaska, not covered by the CONUS-only mosaic) —
+  uses RainViewer, same as the plain `/radar/map.*` endpoints.
+
+**NEXRAD mosaic source:** the [Iowa Environmental
+Mesonet](https://mesonet.agron.iastate.edu/ogc/)'s public `nexrad-n0q` tile
+cache — NOAA/NWS composite reflectivity, served as standard z/x/y slippy
+tiles (confirmed live, 256x256 PNG). This is what makes real NEXRAD imagery
+practical here at all: unlike `radar.weather.gov`'s own fixed-extent
+pre-rendered per-station loop GIFs (what World Today's worker uses for US
+radar, with no crop/zoom/pan support), IEM's tile-based mosaic slots into
+the exact same grid-compositing path as RainViewer, so this app's zoom
+(+/-) and click-drag pan controls work for US locations too. Animated loops
+use IEM's `-mNNm` aged-frame variants (5-minute increments back to -55m),
+snapped to the nearest available frame for the requested interval — see
+`radarNexradAgeSuffixes()` in `radar-common.php`. Free, community-run;
+please don't hammer it.

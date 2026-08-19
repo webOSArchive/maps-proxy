@@ -16,3 +16,8 @@ RewriteRule ^tiles/(road|aerial)/([0-9]+)/([0-9]+)/([0-9]+)\.png$ tiles.php?laye
 # Radar overlay: /radar/map.png|gif?lat=&lon= -> radar-map.php / radar-gif.php
 RewriteRule ^radar/map\.png$ radar-map.php [L,QSA]
 RewriteRule ^radar/map\.gif$ radar-gif.php [L,QSA]
+
+# AccuWeather webOS app's old NMIGS radar endpoints, revived here — see
+# accuweather-token.php / accuweather-radar.php.
+RewriteRule ^nmigs/acx\.aspx$   accuweather-token.php [L,QSA]
+RewriteRule ^nmigs/wapv4\.aspx$ accuweather-radar.php [L,QSA]

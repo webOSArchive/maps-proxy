@@ -89,4 +89,29 @@ return [
     // history; 300ms/frame reads as motion without feeling sluggish.
     'radarFrameCount' => 13,
     'radarFrameDelayMs' => 300,
+
+    // -------------------------------------------------------------------------
+    // NEXRAD mosaic (accuweather-radar.php's US branch — see radar-common.php's
+    // radarFetchNexradTiles()/radarNexradAgeSuffixes())
+    //
+    // Iowa Environmental Mesonet's public national composite-reflectivity tile
+    // cache — NOAA/NWS NEXRAD data mirrored as standard z/x/y slippy tiles,
+    // unlike radar.weather.gov's own fixed-extent pre-rendered station loop
+    // GIFs. Free, community-run (mesonet.agron.iastate.edu); confirmed live
+    // and returning real 256x256 PNG tiles. CONUS-only — HI_RE/AL_RE
+    // (Hawaii/Alaska) requests fall back to RainViewer regardless of this.
+    // -------------------------------------------------------------------------
+
+    // {suffix} is '' for the current frame or '-mNNm' (NN = 05..55, 5-min
+    // steps) for a past frame.
+    'nexradTileUrl' => 'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q{suffix}/{z}/{x}/{y}.png',
+    'nexradUserAgent' => 'webOS-Maps-TileProxy/1.0 (maps.webosarchive.org)',
+    // IEM's mosaic tiles refresh roughly every 5 minutes.
+    'nexradTileCacheTtl' => 60 * 2,
+
+    // Zoom bounds for accuweather-radar.php's geowidth-derived zoom
+    // (radarZoomForGeowidth() in radar-common.php) — clamped to what OSM,
+    // RainViewer, and IEM all realistically have usable tiles for.
+    'radarMinZoom' => 3,
+    'radarMaxZoom' => 10,
 ];
