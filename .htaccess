@@ -12,3 +12,7 @@ RewriteRule ^json\.aspx$          api/places.php    [L,QSA]
 
 # HTTP tile proxy: /tiles/{layer}/{z}/{x}/{y}.png -> tiles.php
 RewriteRule ^tiles/(road|aerial)/([0-9]+)/([0-9]+)/([0-9]+)\.png$ tiles.php?layer=$1&z=$2&x=$3&y=$4 [L,QSA]
+
+# Radar overlay: /radar/map.png|gif?lat=&lon= -> radar-map.php / radar-gif.php
+RewriteRule ^radar/map\.png$ radar-map.php [L,QSA]
+RewriteRule ^radar/map\.gif$ radar-gif.php [L,QSA]

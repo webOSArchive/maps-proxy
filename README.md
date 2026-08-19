@@ -110,15 +110,28 @@ server {
         include fastcgi_params;
     }
 
+    # Radar overlay (see "Radar overlay" section below)
+    location = /radar/map.png {
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root/radar-map.php;
+        include fastcgi_params;
+    }
+    location = /radar/map.gif {
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root/radar-gif.php;
+        include fastcgi_params;
+    }
+
 }
 ```
 
 Adjust `fastcgi_pass` to match your php-fpm socket or TCP address (e.g. `127.0.0.1:9000`).
 
-Create the tile cache directory and make it writable by the web-server user:
+Create the tile and radar cache directories and make them writable by the web-server user:
 
 ```bash
-mkdir -p /var/www/bing-proxy/tiles_cache && chown www-data:www-data /var/www/bing-proxy/tiles_cache
+mkdir -p /var/www/bing-proxy/tiles_cache /var/www/bing-proxy/radar_cache
+chown www-data:www-data /var/www/bing-proxy/tiles_cache /var/www/bing-proxy/radar_cache
 ```
 
 #### Apache
@@ -161,4 +174,32 @@ curl -s "$BASE/json.aspx?Query=coffee&Latitude=47.6062&Longitude=-122.3321&Phone
 # Routing (geocodes waypoints then calls OSRM — takes a few seconds)
 curl -s "$BASE/REST/v1/Routes/Driving?wp.0=Seattle,WA&wp.1=Portland,OR&distanceUnit=km&output=json" | python3 -m json.tool | head -30
 
+# Radar overlay (should return a PNG, and a GIF if Imagick is installed)
+curl -s -o /dev/null -w "radar png %{http_code} %{content_type}\n" "$BASE/radar/map.png?lat=40.7128&lon=-74.0060"
+curl -s -o /dev/null -w "radar gif %{http_code} %{content_type}\n" "$BASE/radar/map.gif?lat=40.7128&lon=-74.0060"
 ```
+
+## Radar overlay
+
+`radar-map.php` / `radar-gif.php` composite a live [RainViewer](https://www.rainviewer.com/api.html)
+radar frame onto the OSM basemap above — RainViewer's own tiles have no
+basemap of their own (unlabeled color blobs on a transparent background),
+so this fetches a basemap tile and a radar tile per grid cell and
+alpha-blends them server-side with GD.
+
+- `GET /radar/map.png?lat=<lat>&lon=<lon>` — single flat PNG, 512x512,
+  centered on the point, using the latest radar frame.
+- `GET /radar/map.gif?lat=<lat>&lon=<lon>` — the same, animated: loops
+  RainViewer's last `radarFrameCount` past frames (13 by default, ~2 hours
+  at their 10-min cadence).
+
+**The GIF endpoint requires the PHP `imagick` extension** (`apt install
+php-imagick` on Debian/Ubuntu) — GD alone has no animated-GIF writer. If
+Imagick isn't installed, `/radar/map.gif` returns `501` with a clear
+message rather than a broken image; `/radar/map.png` works either way.
+
+Radar/basemap tiles are cached on disk under `radarCacheDir` (`radar_cache/`
+by default, separate from `tiles_cache/` above), TTLs configured in
+`config.php`. **RainViewer's terms are personal/non-commercial use with
+attribution required** — worth a re-check if this ends up serving more
+than a small hobbyist/community audience.

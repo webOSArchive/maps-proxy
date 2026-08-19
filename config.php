@@ -55,4 +55,38 @@ return [
     // On-disk tile cache. Must be writable by the web-server user. 30-day TTL.
     'tileCacheDir' => __DIR__ . '/tiles_cache',
     'tileCacheTtl' => 60 * 60 * 24 * 30,
+
+    // -------------------------------------------------------------------------
+    // Radar overlay (radar-map.php / radar-gif.php)
+    //
+    // Composites a live RainViewer radar frame onto the OSM basemap above.
+    // Free, no API key, but personal/non-commercial use + attribution
+    // required per RainViewer's terms: https://www.rainviewer.com/api.html
+    // -------------------------------------------------------------------------
+
+    'rainviewerMetaUrl' => 'https://api.rainviewer.com/public/weather-maps.json',
+
+    // Slippy-map zoom the basemap+radar tiles are fetched at. 6 keeps
+    // individual tile fetches small while still reading as a real map.
+    'radarZoom' => 6,
+
+    // On-disk cache, separate from tileCacheDir above (radar tiles are
+    // keyed per-frame-timestamp, basemap tiles are keyed the same as
+    // tiles.php's own cache but not shared with it). Must be writable by
+    // the web-server user.
+    'radarCacheDir' => __DIR__ . '/radar_cache',
+    // Basemap tiles essentially never change on this timescale.
+    'radarBasemapCacheTtl' => 60 * 60 * 24,
+    // Radar tiles are cached under their frame path, so a hit is always the
+    // exact right frame — safe to cache well past RainViewer's own ~10 min
+    // refresh cadence.
+    'radarTileCacheTtl' => 60 * 30,
+    // weather-maps.json (the frame list) changes roughly every 10 min.
+    'radarMetaCacheTtl' => 60 * 2,
+
+    // Animated GIF: how many of RainViewer's past frames to include, and
+    // the per-frame delay. 13 frames * 10-min spacing = ~2 hours of radar
+    // history; 300ms/frame reads as motion without feeling sluggish.
+    'radarFrameCount' => 13,
+    'radarFrameDelayMs' => 300,
 ];
