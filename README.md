@@ -4,11 +4,11 @@
 
 Maps on legacy webOS have been broken since Bing Maps APIs were retired. This repo contains the back-end code base:
 
-- [bing-proxy](https://www.github.com/webOSArchive/maps-proxy) — server-side shim that uses Leaflet + OSM + Nominatim + OSRM- [bing-proxy](https://www.github.com/webOSArchive/maps-proxy) — server-side shim that uses Leaflet + OSM + Nominatim + OSRM
+- [maps-proxy](https://www.github.com/webOSArchive/maps-proxy) — server-side shim that uses Leaflet + OSM + Nominatim + OSRM
 
 Its used by
 
-- [com.palm.app.maps](https://www.github.com/webOSArchive/webos-maps) — original HP/Palm maps app (Enyo 0.10 framework), patched to point at `bing-proxy`
+- [webos-maps](https://www.github.com/webOSArchive/webos-maps) — original HP/Palm maps app (Enyo 0.10 framework), patched to point at `map-proxy`
 
 ---
 
