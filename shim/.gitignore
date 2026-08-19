@@ -1,0 +1,5 @@
+# Leaflet must be downloaded separately — see bing-proxy setup instructions.
+# Download Leaflet 1.9.x from https://leafletjs.com/download.html
+# and place these two files here:
+leaflet.js
+leaflet.css
