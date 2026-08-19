@@ -4,7 +4,7 @@
 
 Maps on legacy webOS have been broken since Bing Maps APIs were retired. This repo contains the back-end code base:
 
-- [maps-proxy](https://www.github.com/webOSArchive/maps-proxy) — server-side shim that uses Leaflet + OSM + Nominatim + OSRM
+- maps-proxy — this server-side shim that uses Leaflet + OSM + Nominatim + OSRM
 
 Its used by
 
