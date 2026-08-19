@@ -1,2 +1,5 @@
 # On-disk tile cache written by tiles.php
 tiles_cache/
+
+# On-disk cache written by radar-map.php / radar-gif.php
+radar_cache/
